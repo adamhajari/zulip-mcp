@@ -1,0 +1,17 @@
+# Path to your .zuliprc file (relative to this config or absolute).
+# See https://zulip.com/api/configuring-python-bindings for .zuliprc format.
+zuliprc: .zuliprc
+
+defaults:
+  # How many hours back to fetch messages
+  hours_back: 24
+
+  # Channels to include in a digest. Use exact Zulip stream names.
+  channels:
+    - general
+    - announcements
+    - your-interests
+
+  # Messages longer than this (in characters) will be truncated in digests.
+  # Claude can fetch the full content of any truncated message via get_full_message.
+  truncation_length: 500

@@ -1,0 +1,9 @@
+.zuliprc
+!.zuliprc.example
+config.yaml
+*.egg-info/
+__pycache__/
+.venv/
+dist/
+summaries/
+.claude/
