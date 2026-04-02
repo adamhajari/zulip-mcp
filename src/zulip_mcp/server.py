@@ -5,7 +5,7 @@ import mcp.types as types
 from mcp.server import Server
 
 from .client import ZulipMCPClient, format_messages_for_context
-from .config import load_config
+from .config import load_config, save_interests
 
 config = load_config()
 zulip_client = ZulipMCPClient(config["zuliprc"])
@@ -65,6 +65,25 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="set_interests",
+            description=(
+                "Save the user's interests to config.yaml. "
+                "Call this after asking the user what topics they care about. "
+                "These interests are used to filter and prioritize digests."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "interests": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of interest topics, e.g. ['AI coding agents', 'machine learning'].",
+                    }
+                },
+                "required": ["interests"],
+            },
+        ),
+        types.Tool(
             name="get_digest",
             description=(
                 "Fetch recent messages from multiple Zulip channels at once. "
@@ -117,7 +136,27 @@ async def call_tool(
         text = f"**#{stream} > {topic}**\n**{sender}** ({ts}):\n\n{content}"
         return [types.TextContent(type="text", text=text)]
 
+    if name == "set_interests":
+        interests = arguments["interests"]
+        save_interests(interests)
+        config["interests"] = interests
+        return [types.TextContent(
+            type="text",
+            text=f"Interests saved: {', '.join(interests)}",
+        )]
+
     if name == "get_digest":
+        if not config.get("interests"):
+            return [types.TextContent(
+                type="text",
+                text=(
+                    "No interests are configured yet. "
+                    "Please ask the user what topics they'd like to focus on "
+                    "(e.g. AI, machine learning, programming languages, systems), "
+                    "then call set_interests with their response before fetching the digest."
+                ),
+            )]
+
         channels = arguments.get("channels") or defaults["channels"]
         hours_back = arguments.get("hours_back", defaults["hours_back"])
 
