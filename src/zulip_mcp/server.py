@@ -11,7 +11,42 @@ config = load_config()
 zulip_client = ZulipMCPClient(config["zuliprc"])
 defaults = config["defaults"]
 
-app = Server("zulip-mcp")
+app = Server(
+    "zulip-mcp",
+    instructions=(
+        "You are a helpful assistant with access to a Recurse Center Zulip workspace. "
+        "You can list channels, fetch messages, and generate digests. "
+        "\n\n"
+        "IMPORTANT — the anonymize parameter is opt-in and must ONLY be used when the "
+        "user explicitly requests it (e.g. 'use anonymize=true'). Never pass anonymize=true "
+        "on your own initiative.\n\n"
+        "When anonymize=true is requested, tool responses will contain aliases like "
+        "{User1}, {User2}, etc. in place of real names. In that case you MUST:\n"
+        "  1. Preserve every alias exactly as-is in your response (e.g. {User12}, not 'User12', "
+        "'user 12', 'they', 'this person', or any other substitution).\n"
+        "  2. NEVER attempt to infer, guess, reconstruct, or look up real names from aliases — "
+        "not from context, not from any file, not from any other source. Aliases are "
+        "intentionally opaque and must remain so.\n"
+        "  3. NEVER read, request, or access the anonymizer mapping file "
+        "(~/.config/zulip_mcp/anonymizer_map.json or any similarly named file). "
+        "This file is off-limits entirely.\n"
+        "  4. Never drop an alias — if a person did something noteworthy, refer to them "
+        "by their alias.\n"
+        "De-anonymization is handled externally after you respond. Your job is only to "
+        "preserve aliases faithfully — never to resolve them."
+    ),
+)
+
+# Appended to tool responses when anonymize=True so Claude preserves aliases
+# exactly as-is, enabling reliable de-anonymization of its responses afterward.
+_ANONYMIZE_NOTICE = (
+    "\n\n---\n"
+    "Note: User identities in this content have been replaced with anonymous aliases "
+    "({User1}, {User2}, etc.). "
+    "You MUST preserve these aliases exactly as-is in your response — "
+    "do not paraphrase, omit, or alter them. "
+    "De-anonymization will be applied to your response after the fact."
+)
 
 
 @app.list_tools()
@@ -42,6 +77,14 @@ async def list_tools() -> list[types.Tool]:
                             f"Defaults to {defaults['hours_back']}."
                         ),
                     },
+                    "anonymize": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, replace real user names with stable aliases "
+                            "(e.g. {User1}, {User2}) in all sender fields and @-mentions. "
+                            "Defaults to false."
+                        ),
+                    },
                 },
                 "required": ["channel"],
             },
@@ -59,7 +102,15 @@ async def list_tools() -> list[types.Tool]:
                     "message_id": {
                         "type": "integer",
                         "description": "The Zulip message ID.",
-                    }
+                    },
+                    "anonymize": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, replace real user names with stable aliases "
+                            "(e.g. {User1}, {User2}) in sender and @-mentions. "
+                            "Defaults to false."
+                        ),
+                    },
                 },
                 "required": ["message_id"],
             },
@@ -103,6 +154,14 @@ async def list_tools() -> list[types.Tool]:
                         "type": "integer",
                         "description": "Override the default hours lookback.",
                     },
+                    "anonymize": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, replace real user names with stable aliases "
+                            "(e.g. {User1}, {User2}) in all sender fields and @-mentions. "
+                            "Defaults to false."
+                        ),
+                    },
                 },
                 "required": [],
             },
@@ -122,18 +181,24 @@ async def call_tool(
     if name == "get_channel_messages":
         channel = arguments["channel"]
         hours_back = arguments.get("hours_back", defaults["hours_back"])
-        messages = zulip_client.get_messages(channel, hours_back)
+        anonymize = arguments.get("anonymize", False)
+        messages = zulip_client.get_messages(channel, hours_back, anonymize=anonymize)
         text = format_messages_for_context(channel, messages, defaults["truncation_length"])
+        if anonymize:
+            text += _ANONYMIZE_NOTICE
         return [types.TextContent(type="text", text=text)]
 
     if name == "get_full_message":
-        msg = zulip_client.get_full_message(arguments["message_id"])
+        anonymize = arguments.get("anonymize", False)
+        msg = zulip_client.get_full_message(arguments["message_id"], anonymize=anonymize)
         sender = msg.get("sender_full_name", msg.get("sender_email", "unknown"))
         ts = datetime.fromtimestamp(msg["timestamp"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         topic = msg.get("subject") or "(no topic)"
         stream = msg.get("display_recipient", "unknown")
         content = msg.get("content", "").strip()
         text = f"**#{stream} > {topic}**\n**{sender}** ({ts}):\n\n{content}"
+        if anonymize:
+            text += _ANONYMIZE_NOTICE
         return [types.TextContent(type="text", text=text)]
 
     if name == "set_interests":
@@ -159,6 +224,7 @@ async def call_tool(
 
         channels = arguments.get("channels") or defaults["channels"]
         hours_back = arguments.get("hours_back", defaults["hours_back"])
+        anonymize = arguments.get("anonymize", False)
 
         if not channels:
             return [types.TextContent(
@@ -169,19 +235,32 @@ async def call_tool(
         parts = []
         for channel in channels:
             try:
-                messages = zulip_client.get_messages(channel, hours_back)
+                messages = zulip_client.get_messages(channel, hours_back, anonymize=anonymize)
                 parts.append(format_messages_for_context(channel, messages, defaults["truncation_length"]))
             except RuntimeError as e:
                 parts.append(f"## #{channel}\n\nError: {e}\n")
 
-        return [types.TextContent(type="text", text="\n---\n".join(parts))]
+        text = "\n---\n".join(parts)
+        if anonymize:
+            text += _ANONYMIZE_NOTICE
+        return [types.TextContent(type="text", text=text)]
 
     raise ValueError(f"Unknown tool: {name}")
 
 
 def main():
     import asyncio
-    asyncio.run(mcp.server.stdio.run(app))
+    import mcp.server.stdio
+
+    async def _run():
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await app.run(
+                read_stream,
+                write_stream,
+                app.create_initialization_options(),
+            )
+
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

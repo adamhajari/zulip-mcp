@@ -45,33 +45,36 @@ defaults:
 
 Use exact stream names as they appear in Zulip.
 
-### 4. Install the package
+### 4. Claude Install
+
+If you're using Claude Code, you can have Claude handle steps 4 and 5 for you. Open Claude Code in the project directory and paste this prompt:
+
+> "Install dependencies for this project and register it as an MCP server in my Claude Code settings."
+
+Claude knows the absolute path of the project and will fill it in correctly.
+
+### 5. Install dependencies (manual)
 
 ```bash
-pip install -e .
+uv sync
 ```
 
-Or with `uv`:
+### 6. Add to Claude Code (or Claude Desktop) (manual)
+
+**Claude Code** — run from the project directory:
 
 ```bash
-uv pip install -e .
+claude mcp add zulip-mcp -- uv run --project /absolute/path/to/zulip zulip-mcp
 ```
 
-### 5. Add to Claude Code (or Claude Desktop)
-
-**Claude Code** — add to your MCP settings:
-
-```bash
-claude mcp add zulip-mcp -- zulip-mcp
-```
-
-Or manually in `~/.claude/mcp.json` (or `.mcp.json` in the project root):
+This writes the server into `~/.claude/settings.json`. To scope it to this project only, add it manually to `.claude/settings.json` (committed) or `.claude/settings.local.json` (local only) in the project root:
 
 ```json
 {
   "mcpServers": {
     "zulip-mcp": {
-      "command": "zulip-mcp"
+      "command": "uv",
+      "args": ["run", "--project", "/absolute/path/to/zulip", "zulip-mcp"]
     }
   }
 }
@@ -83,32 +86,22 @@ Or manually in `~/.claude/mcp.json` (or `.mcp.json` in the project root):
 {
   "mcpServers": {
     "zulip-mcp": {
-      "command": "zulip-mcp"
+      "command": "uv",
+      "args": ["run", "--project", "/absolute/path/to/zulip", "zulip-mcp"]
     }
   }
 }
 ```
 
-If you installed with `uv` or into a virtualenv, use the full path to the binary, e.g.:
-
-```json
-{
-  "mcpServers": {
-    "zulip-mcp": {
-      "command": "/path/to/venv/bin/zulip-mcp"
-    }
-  }
-}
-```
-
-> **Note:** The server reads `config.yaml` from the directory where the package is installed. If you move the project, update the MCP config to set `ZULIP_MCP_CONFIG` to the absolute path of your `config.yaml`:
+> **Note:** The server reads `config.yaml` from the project directory by default. You can override this with the `ZULIP_MCP_CONFIG` environment variable:
 > ```json
 > {
 >   "mcpServers": {
 >     "zulip-mcp": {
->       "command": "zulip-mcp",
+>       "command": "uv",
+>       "args": ["run", "--project", "/absolute/path/to/zulip", "zulip-mcp"],
 >       "env": {
->         "ZULIP_MCP_CONFIG": "/absolute/path/to/zulip/config.yaml"
+>         "ZULIP_MCP_CONFIG": "/absolute/path/to/config.yaml"
 >       }
 >     }
 >   }
@@ -124,6 +117,40 @@ Once the MCP is connected, you can ask Claude things like:
 - *"What topics came up in #announcements in the last 48 hours?"*
 - *"List my subscribed channels"*
 
+To protect user privacy, pass `anonymize=true` to any tool that returns message content. Real names will be replaced with stable aliases (`{User1}`, `{User2}`, etc.) before anything is sent to Claude:
+
+- *"Summarize the checkins channel from the last 24 hours. Use anonymize=true for all tool calls."*
+
+The alias mapping is saved locally at `~/.config/zulip_mcp/anonymizer_map.json` for de-anonymization after the fact.
+
+### Privacy-first CLI: `prompt_with_privacy.py`
+
+For a fully automated, privacy-preserving workflow, use the included script. It sends your query to Claude with anonymization enforced, then automatically de-anonymizes the response using the local alias map before writing the result to a file.
+
+```bash
+python prompt_with_privacy.py "your query here"
+```
+
+Options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output`, `-o` | `output.md` | Path to write the de-anonymized response |
+
+Example:
+
+```bash
+python prompt_with_privacy.py "summarize checkins from the last 24 hours. return a one sentence summary for every person." --output checkins.md
+```
+
+The script:
+1. Appends *"Use anonymize=true for all tool calls."* to your prompt
+2. Invokes `claude -p` with the Zulip MCP and no other tools
+3. Replaces all `{UserN}` aliases in the response with real names
+4. Writes the result to the output file
+
+> **Note:** Requires `claude` to be available in your `PATH` and the `zulip-mcp` server registered in `~/.claude.json` for this project directory (see setup steps above).
+
 ### Available tools
 
 | Tool | Description |
@@ -132,6 +159,9 @@ Once the MCP is connected, you can ask Claude things like:
 | `get_channel_messages` | Fetch recent messages from one channel |
 | `get_digest` | Fetch messages from all configured channels at once |
 | `get_full_message` | Fetch the complete content of a single message by ID |
+| `set_interests` | Save your interests to config.yaml to filter digests |
+
+All tools that return message content accept an optional `anonymize` parameter (default: `false`).
 
 You can override defaults inline — e.g. "summarize #checkins for the last 3 days" will pass `hours_back: 72` to the tool.
 
