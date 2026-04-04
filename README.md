@@ -45,13 +45,18 @@ defaults:
 
 Use exact stream names as they appear in Zulip.
 
+## 🛡️ Architecture & Data Privacy
+This is a standard MCP server. It is LLM-agnostic and can be used with any MCP-compatible client. The privacy of your Zulip data depends entirely on the client you choose:
+  - Cloud Clients (e.g., Claude Desktop): Data will be sent to the provider's servers for processing.
+  - Local Clients (e.g., Ollama + local MCP host): Data stays on your machine.
+If you are using this in a community with high privacy expectations, consider using a local-only workflow.
+
 ### 4. Claude Install
 
 If you're using Claude Code, you can have Claude handle steps 4 and 5 for you. Open Claude Code in the project directory and paste this prompt:
 
 > "Install dependencies for this project and register it as an MCP server in my Claude Code settings."
 
-Claude knows the absolute path of the project and will fill it in correctly.
 
 ### 5. Install dependencies (manual)
 
@@ -110,7 +115,7 @@ This writes the server into `~/.claude/settings.json`. To scope it to this proje
 
 ## Usage
 
-Once the MCP is connected, you can ask Claude things like:
+Once the MCP is connected, you can ask things like:
 
 - *"Summarize what's been discussed in #general today"*
 - *"Give me a digest of all my configured channels"*
@@ -125,11 +130,19 @@ The alias mapping is saved locally at `~/.config/zulip_mcp/anonymizer_map.json` 
 
 ### Privacy-first CLI: `prompt_with_privacy.py`
 
-For a fully automated, privacy-preserving workflow, use the included script. It sends your query to Claude with anonymization enforced, then automatically de-anonymizes the response using the local alias map before writing the result to a file.
+For a workflow that anonymizes messages before sending to the LLM and deanonymizes the response, use the included script. It sends your query to the LLM with anonymization enforced, then automatically de-anonymizes the response using the local alias map before writing the result to a file.
 
 ```bash
 python prompt_with_privacy.py "your query here"
 ```
+
+## ⚠️ Privacy & Security Disclosure
+
+Please be aware of the following before using it in a community setting (like the Recurse Center):
+
+- **Data Processing:** By default, the prompt_with_privacy.py script sends Zulip message content to Anthropic's servers for processing. Even when using the `anonymize=true` flag, users may still be identifiable through writing patterns, specific interests, or context (stylometry).
+- **Consent:** Consider getting the consent of all participants before using this tool to summarize any non-public Zulip channels.
+- **Local Alternative:** If you require 100% data privacy, it is recommended to modify the client to point to a local LLM (e.g., via Ollama or an internal cluster like RC's Heap) rather than using a cloud-based provider.
 
 Options:
 
