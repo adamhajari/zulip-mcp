@@ -20,7 +20,7 @@ class ZulipMCPClient:
             raise RuntimeError(f"Failed to fetch subscriptions: {result.get('msg')}")
         return sorted(s["name"] for s in result["subscriptions"])
 
-    def get_full_message(self, message_id: int, anonymize: bool = False) -> dict[str, Any]:
+    def get_full_message(self, message_id: int, anonymize: bool = True) -> dict[str, Any]:
         """
         Fetch the complete content of a single message by ID.
 
@@ -44,7 +44,7 @@ class ZulipMCPClient:
             msg = _anonymize_msg(msg, self.anonymizer)
         return msg
 
-    def get_messages(self, channel: str, hours_back: int, anonymize: bool = False) -> list[dict[str, Any]]:
+    def get_messages(self, channel: str, hours_back: int, anonymize: bool = True) -> list[dict[str, Any]]:
         """
         Fetch recent messages from a channel.
 
