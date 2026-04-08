@@ -164,12 +164,77 @@ The script:
 
 > **Note:** Requires `claude` to be available in your `PATH` and the `zulip-mcp` server registered in `~/.claude.json` for this project directory (see setup steps above).
 
+### Local LLM CLI: `zulip_local.py`
+
+For a fully local workflow that keeps all Zulip data on your machine, use the included script. It connects directly to a local Ollama instance (or any OpenAI-compatible endpoint) and runs the full agentic loop — fetching messages and summarizing them — without sending anything to a cloud provider.
+
+#### 1. Install Ollama
+
+Download and install from [ollama.com](https://ollama.com/download), or on macOS:
+
+```bash
+brew install ollama
+```
+
+#### 2. Download a model
+
+```bash
+ollama pull gemma4:e4b
+```
+
+Any model that supports tool calling will work. `gemma4:e4b` is the default.
+
+#### 3. Start the Ollama server
+
+```bash
+ollama serve
+```
+
+Or run it as a background service via Homebrew (starts automatically on login):
+
+```bash
+brew services start ollama
+```
+
+Either way, the server listens at `http://localhost:11434`.
+
+#### 4. Run the script
+
+```bash
+uv run python zulip_local.py "summarize the checkins channel from the last 24 hours"
+```
+
+#### Configuration
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `ZULIP_MCP_MODEL` | `gemma4:e4b` | Model to use |
+| `ZULIP_MCP_DIR` | Script directory | Path to the zulip-mcp project |
+| `OPEN_WEBUI_API_KEY` | — | Set to use Open WebUI instead of local Ollama |
+| `OPEN_WEBUI_BASE_URL` | — | Base URL for Open WebUI (required with `OPEN_WEBUI_API_KEY`) |
+
+Both `OPEN_WEBUI_API_KEY` and `OPEN_WEBUI_BASE_URL` must be set to switch away from local Ollama.
+
+#### CLI flags
+
+| Flag | Description |
+|---|---|
+| `--model <name>` | Override the model (takes precedence over `ZULIP_MCP_MODEL`) |
+| `--verbose` | Print tool calls and raw tool results |
+
+Example:
+
+```bash
+uv run python zulip_local.py "summarize the checkins channel from the last 24 hours. give a one to two sentence summary for every person." --model llama3.2
+```
+
 ### Available tools
 
 | Tool | Description |
 |------|-------------|
 | `list_channels` | List all channels you're subscribed to |
 | `get_channel_messages` | Fetch recent messages from one channel |
+| `get_checkins` | Fetch check-ins one topic at a time (avoids context overload) |
 | `get_digest` | Fetch messages from all configured channels at once |
 | `get_full_message` | Fetch the complete content of a single message by ID |
 | `set_interests` | Save your interests to config.yaml to filter digests |

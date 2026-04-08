@@ -4,7 +4,7 @@ import mcp.server.stdio
 import mcp.types as types
 from mcp.server import Server
 
-from .client import ZulipMCPClient, format_messages_for_context
+from .client import ZulipMCPClient, format_messages_for_context, get_topics_from_messages, filter_messages_by_topic
 from .config import load_config, save_interests
 
 config = load_config()
@@ -135,6 +135,46 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="get_checkins",
+            description=(
+                "Fetch check-in posts from the 'checkins' channel, one topic at a time. "
+                "Each call returns one topic's messages plus a `next_topic` value. "
+                "REQUIRED workflow:\n"
+                "1. Call with no arguments to start — gets the first topic's messages.\n"
+                "2. Write a summary of that topic.\n"
+                "3. If the response includes 'next_topic', call get_checkins(topic=<next_topic>).\n"
+                "4. Repeat steps 2-3 until the response says 'No more topics'.\n"
+                "You MUST keep calling until there are no more topics."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": (
+                            "Topic to fetch. Omit on first call — returns the first topic automatically. "
+                            "On subsequent calls, pass the exact `next_topic` value from the previous response."
+                        ),
+                    },
+                    "hours_back": {
+                        "type": "integer",
+                        "description": (
+                            f"How many hours of history to fetch. "
+                            f"Defaults to {defaults['hours_back']}."
+                        ),
+                    },
+                    "anonymize": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, replace real user names with stable aliases. "
+                            "Defaults to false."
+                        ),
+                    },
+                },
+                "required": [],
+            },
+        ),
+        types.Tool(
             name="get_digest",
             description=(
                 "Fetch recent messages from multiple Zulip channels at once. "
@@ -209,6 +249,58 @@ async def call_tool(
             type="text",
             text=f"Interests saved: {', '.join(interests)}",
         )]
+
+    if name == "get_checkins":
+        checkins_channel = "checkins"
+        hours_back = arguments.get("hours_back", defaults["hours_back"])
+        anonymize = arguments.get("anonymize", False)
+        topic = arguments.get("topic")
+
+        messages = zulip_client.get_messages(checkins_channel, hours_back, anonymize=anonymize)
+        all_topics = get_topics_from_messages(messages)
+
+        if not all_topics:
+            return [types.TextContent(
+                type="text",
+                text=f"No check-in messages in the last {hours_back} hours.",
+            )]
+
+        # Determine which topic to return and what comes next
+        if topic is None:
+            current_topic = all_topics[0]
+        else:
+            current_topic = topic
+
+        try:
+            idx = all_topics.index(current_topic)
+        except ValueError:
+            return [types.TextContent(
+                type="text",
+                text=f"Topic '{current_topic}' not found in checkins. Available topics: {all_topics}",
+            )]
+
+        next_topic = all_topics[idx + 1] if idx + 1 < len(all_topics) else None
+        topics_remaining = len(all_topics) - idx - 1
+
+        topic_messages = filter_messages_by_topic(messages, current_topic)
+        if not topic_messages:
+            text = f"No messages for topic '{current_topic}'."
+        else:
+            text = format_messages_for_context(checkins_channel, topic_messages, defaults["truncation_length"])
+
+        text += f"\n\n---\nTopic {idx + 1} of {len(all_topics)}. "
+        if next_topic:
+            text += (
+                f"**next_topic: {next_topic}**\n"
+                f"({topics_remaining} topic(s) remaining)\n"
+                f"Summarize the above, then call get_checkins(topic='{next_topic}')."
+            )
+        else:
+            text += "No more topics. All check-ins have been fetched."
+
+        if anonymize:
+            text += _ANONYMIZE_NOTICE
+        return [types.TextContent(type="text", text=text)]
 
     if name == "get_digest":
         if not config.get("interests"):

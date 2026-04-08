@@ -112,6 +112,21 @@ def _hours_ago_timestamp(hours: int) -> int:
     return int(now.timestamp()) - delta_seconds
 
 
+def get_topics_from_messages(messages: list[dict]) -> list[str]:
+    """Return an ordered list of unique topics from a list of messages."""
+    seen: dict[str, None] = {}
+    for msg in messages:
+        topic = msg.get("subject") or "(no topic)"
+        if topic not in seen:
+            seen[topic] = None
+    return list(seen)
+
+
+def filter_messages_by_topic(messages: list[dict], topic: str) -> list[dict]:
+    """Return only messages matching the given topic."""
+    return [m for m in messages if (m.get("subject") or "(no topic)") == topic]
+
+
 def format_messages_for_context(channel: str, messages: list[dict], truncation_length: int = 500) -> str:
     if not messages:
         return f"## #{channel}\n\nNo messages in this time period.\n"
