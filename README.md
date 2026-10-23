@@ -28,7 +28,7 @@ site=https://recurse.zulipchat.com
 
 Alternatively, Zulip can generate a pre-filled `.zuliprc` for you: **Settings → Account & privacy → API key → Show/change your API key → Download .zuliprc**. Place the downloaded file in the project directory.
 
-### 3. Configure your channels
+### 3. Configure your channels 
 
 Edit `config.yaml` to set the channels you want in your default digest and how far back to look:
 
